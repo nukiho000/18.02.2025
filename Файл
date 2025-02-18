@@ -1,0 +1,126 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+public class ForbiddenWordsFinder : Form
+{
+    private TextBox tbForbiddenWords;
+    private Button btnStart;
+    private Button btnPause;
+    private Button btnResume;
+    private Button btnStop;
+    private ProgressBar progressBar;
+    private List<string> forbiddenWords;
+    private CancellationTokenSource cancellationTokenSource;
+    private int totalFiles;
+    private int processedFiles;
+
+    public ForbiddenWordsFinder()
+    {
+        
+        tbForbiddenWords = new TextBox { Multiline = true, Width = 400, Height = 200 };
+        btnStart = new Button { Text = "Старт" };
+        btnPause = new Button { Text = "Приостановить" };
+        btnResume = new Button { Text = "Возобновить" };
+        btnStop = new Button { Text = "Остановить" };
+        progressBar = new ProgressBar { Width = 400 };
+
+        btnStart.Click += BtnStart_Click;
+        btnPause.Click += BtnPause_Click;
+        btnResume.Click += BtnResume_Click;
+        btnStop.Click += BtnStop_Click;
+
+        Controls.Add(tbForbiddenWords);
+        Controls.Add(btnStart);
+        Controls.Add(btnPause);
+        Controls.Add(btnResume);
+        Controls.Add(btnStop);
+        Controls.Add(progressBar);
+    }
+
+    private async void BtnStart_Click(object sender, EventArgs e)
+    {
+        forbiddenWords = tbForbiddenWords.Text.Split(new[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries).ToList();
+        cancellationTokenSource = new CancellationTokenSource();
+        processedFiles = 0;
+
+        var drives = DriveInfo.GetDrives();
+        totalFiles = drives.Sum(d => d.RootDirectory.GetFiles("*", SearchOption.AllDirectories).Length);
+        progressBar.Maximum = totalFiles;
+
+        await Task.Run(() => SearchForbiddenWords(drives, cancellationTokenSource.Token));
+    }
+
+    private void SearchForbiddenWords(DriveInfo[] drives, CancellationToken token)
+    {
+        foreach (var drive in drives)
+        {
+            if (!drive.IsReady) continue;
+
+            var files = drive.RootDirectory.GetFiles("*", SearchOption.AllDirectories);
+            foreach (var file in files)
+            {
+                if (token.IsCancellationRequested) return;
+
+                try
+                {
+                    string content = File.ReadAllText(file.FullName);
+                    int count = 0;
+
+                    foreach (var word in forbiddenWords)
+                    {
+                        if (content.Contains(word))
+                        {
+                            count++;
+                            content = content.Replace(word, "*******");
+                        }
+                    }
+
+                    if (count > 0)
+                    {
+                        File.Copy(file.FullName, Path.Combine("DestinationPath", file.Name), true);
+                        File.WriteAllText(Path.Combine("DestinationPath", "Modified_" + file.Name), content);
+                    }
+
+                    Interlocked.Increment(ref processedFiles);
+                    UpdateProgress();
+                }
+                catch (Exception ex)
+                {
+                    // ошибки обраб
+                }
+            }
+        }
+    }
+
+    private void UpdateProgress()
+    {
+        Invoke(new Action(() =>
+        {
+            progressBar.Value = processedFiles;
+        }));
+    }
+
+    private void BtnPause_Click(object sender, EventArgs e)
+    {
+    }
+
+    private void BtnResume_Click(object sender, EventArgs e)
+    {
+    }
+
+    private void BtnStop_Click(object sender, EventArgs e)
+    {
+        cancellationTokenSource.Cancel();
+    }
+
+    [STAThread]
+    public static void Main()
+    {
+        Application.Run(new ForbiddenWordsFinder());
+    }
+}
